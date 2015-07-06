@@ -1,0 +1,273 @@
+<script type="text/javascript">
+
+    var statements, transactions;
+    var storeMask = new Ext.LoadMask(Ext.getBody(), {msg: 'Ładowanie danych. Proszę czekac...'}).show();
+
+    Ext.onReady(function ()
+    {
+        Ext.Ajax.timeout = 3600000;
+
+        /* grid z listą plików wyciągu */
+        statements = new Grid({
+            //renderTo: 'statements',
+            url: '/vindication/BankStatement/statement/getstatements',
+            id: 'bank-statements-grid',
+            title: 'Lista zaimportowanych wyciągów',
+            pageSize: 10,
+            tbar: [
+                buttonsS.clearFilters,
+                buttonsS.deleteSettlement,
+                buttonsS.importSettlement,
+                buttonsS.executeStatementSettle
+            ],
+            columns: [
+                {text: 'Konto księgowe',        dataIndex: 'konto_ksiegowe'},
+                {text: 'Plik',                  dataIndex: 'nazwa'},
+                {text: 'Data wyciągu',          dataIndex: 'saldo_poczatkowe_data',
+                    renderer: function(value, meta, record){
+                        return record.raw.saldo_poczatkowe_data + ' - ' + record.raw.saldo_koncowe_data;
+                    },
+                    width: 155, align: 'center'
+                },
+                {text: 'Waluta',                dataIndex: 'saldo_poczatkowe_waluta'},
+                {text: 'Saldo początkowe',      dataIndex: 'saldo_poczatkowe_kwota',    type: 'money'},
+                {text: 'Saldo końcowe',         dataIndex: 'saldo_koncowe_kwota',       type: 'money'},
+                {text: 'Kod klienta',           dataIndex: 'identyfikator_rachunku'},
+                {text: 'Podsumowanie',          dataIndex: 'podsumowanie'},
+                {text: 'Źródło',                dataIndex: 'bank',                      sortable: false, id: 'bank-parser'},
+                {text: 'Rozliczone',            dataIndex: 'rozliczane_automatycznie',  align: 'center', id: 'statement-settled', resizable: false,
+                    renderer: function (value) {
+                        switch (value)
+                        {
+                            case '1':
+                                return 'Tak';
+                            case '2':
+                                return 'Częściowo';
+                            default:
+                                return 'Nie';
+                        }
+                    },
+                    xfilter: {
+                        xtype: 'combobox',
+                        data: [
+                            {display: 'Wszystkie',  value: ''},
+                            {display: 'Tak',        value: '1'},
+                            {display: 'Nie',        value: 'null'},
+                            {display: 'Częściowo',  value: '2'}
+                        ],
+                        change: function(combo) {
+                            statements.getExt().filters.addFilter({
+                                "type":"string",
+                                "value": combo.getValue(),
+                                "dataIndex":"rozliczane_automatycznie"
+                            });
+                            statements.loadPage({page: 1, xfilter: '[{"type":"string","value":"'+ combo.getValue() +'","field":"rozliczane_automatycznie"}]'});
+                        }
+                    }
+                }
+            ],
+            contextMenu: function (record) {
+                return new Ext.menu.Menu({
+                    items: [
+                        buttonsS.executeStatementSettle,
+                        buttonsS.deleteSettlement
+                    ]
+                });
+            }
+        });
+ 
+
+        /* lista transakcji */
+        transactions = new Grid({
+            //renderTo: 'transactions',
+            url: '/vindication/BankStatement/Transaction/gettransactions',
+            id: 'bank-statements-transactions-grid',
+            title: 'Lista transakcji wyciągu baknowego',
+            pageSize: 20,
+            selModel: 'MULTI',
+            columns: [ 
+                {text: 'Subkonto kontrahenta (bankowe)',    dataIndex: 'kontrahent_nr_subkonta',        filter: {type: 'string'} },
+                {text: 'Konto kontrahenta (bankowe)',       dataIndex: 'kontrahent_nr_konta',           filter: {type: 'string'} },
+                {text: 'ID kontrahenta',                    dataIndex: 'kontrahent_id'},
+                {text: 'Kontrahent',                        dataIndex: 'kontrahent' },
+                {text: 'Nazwa z wyciągu bankowego',         dataIndex: 'kontrahent_nazwa_adres'},
+                {text: 'Konto księgowe',                    dataIndex: 'konto_ksiegowe'},
+                {text: 'Szczegóły',                         dataIndex: 'tytul_operacji'},
+                {text: 'Kwota transakcji',                  dataIndex: 'kwota_operacji',        type: 'money'},
+                {text: 'Znak operacji',                     dataIndex: 'znak_operacji',         hidden: true},
+                {text: 'Nazwa waluty',                      dataIndex: 'waluta',                hidden: true},
+                {text: 'Data waluty',                       dataIndex: 'data_waluty',           hidden: true},
+                {text: 'Kod operacji',                      dataIndex: 'kod_operacji_1',        hidden: true},
+                {text: 'Numer referencyjny',                dataIndex: 'referencja',            hidden: true},
+                {text: 'Kod MPS',                           dataIndex: 'kod_operacji_2',        hidden: true},
+                {text: 'Data obciążenia',                   dataIndex: 'data_operacji',         type: 'date'},
+                {text: 'Rozliczone',                        dataIndex: 'rozliczane_automatycznie', width: 120, align: 'center', id: 'transaction-settled',
+                    renderer: function (value) {
+                        switch (parseInt(value)) {
+                            case 1:
+                                return 'Tak';
+                            case 3:
+                                return 'Tak (ręcznie)';
+                            case 4:
+                                return 'Tak (oznaczone)';
+                            case 0:
+                                return 'Nie';
+                            case 5:
+                                return 'Nie (oznaczone)';
+                            case 2:
+                                return 'Saldo debetowe';
+                            default:
+                                return '-';
+                        }
+                    },
+                    xfilter: {
+                        xtype: 'combobox',
+                        id: 'xfilter-transaction-settled',
+                        data: [
+                            {display: 'Wszystkie',      value: ''},
+                            {display: 'Tak',            value: '[1,3,4]'},
+                            {display: 'Nie',            value: '[0,5]'},
+                            {display: 'Saldo debetowe', value: '[2]'}
+                        ],
+                        change: function(combo) {
+                            transactions.getExt().filters.addFilter({
+                                "type":"string",
+                                "value": combo.getValue(),
+                                "dataIndex":"rozliczane_automatycznie"
+                            });
+                            transactions.loadPage({page: 1, xfilter: '[{"type":"string","value":"'+ combo.getValue() +'","field":"rozliczane_automatycznie"}]'});
+                        }
+                    }
+                }
+
+            ],
+            fields: [],
+            tbar: [
+                buttonsT.clearFilters,
+                buttonsT.checkAndMergeWithContractors
+            ],
+            itemContextMenu: function (record, index, event)
+            {
+                event.stopEvent();
+
+                var items;
+
+                if (transactions.getSelectedRecords().length > 1)
+                {
+                    items = [
+                        buttonsT.chooseContractor,
+                        buttonsT.markAs
+                    ];
+                }
+                else
+                {
+                    transactions.select(index);
+                    var executed = transactions.getSelectedRowData('rozliczane_automatycznie');
+
+                    switch (parseInt(executed))
+                    {
+                        case 1:
+                        case 3:
+                        case 4:
+                            items = [
+                                buttonsT.showPayments,
+                                buttonsT.markAs,
+                                buttonsT.showRecordDetails
+                            ];
+                            break;
+                        case 2:
+                            items = [
+                                buttonsT.showRecordDetails
+                            ];
+                            break;
+                        default:
+                            items = [
+                                buttonsT.chooseContractor,
+                                buttonsT.executeTransactionSettle, /* otwiera okno z fakturami do rozliczenia */
+                                buttonsT.markAs,
+                                buttonsT.showRecordDetails
+                            ];
+                    }
+                    // transactions.select(index);
+                }
+
+                new Ext.menu.Menu({items: items}).showAt(event.getXY());
+            }
+        });
+
+
+
+        /* * */
+
+        statements.onLoad(function () {
+            if( false != storeMask ) {
+                storeMask.destroy();
+                storeMask = false;
+            }
+            restoreXfiltersSettings(statements.getExt());
+            transactions.ExtGrid().getStore().removeAll();
+        });
+        statements.loadPage(1);
+        statements.onSelect(function (e, record) {
+            transactions.addRequestParams({
+                statement_id: record.data.id
+            });
+            transactions.loadPage(1);
+        });
+
+
+        statements.onLoad(function ()
+        {
+            Ext.ComponentManager.get('statements-viewport-panel').addListener('resize', function(){
+                setTimeout(function() {
+                    var height;
+                    statements.getExt().setHeight(
+                        height = statements.getExt().ownerCt.getHeight()
+                    );
+                    transactions.getExt().setHeight(
+                        transactions.getExt().ownerCt.getHeight()
+                    );
+
+                    localStorage.setItem('StatementGridHeight', height);
+                }, 100);
+            });
+
+        }, true);
+
+
+        transactions.onLoad(function(){
+            restoreXfiltersSettings(transactions.getExt());
+        });
+
+        /* zmiana rozmiaru gridow */
+        var height;
+        new Ext.Viewport({
+            layout: 'border',
+            renderTo: Ext.getBody(),
+            defaults: {
+                border: 0
+            },
+            items: [
+                {
+                    id: 'statements-viewport-panel',
+                    height: (height = parseInt(localStorage.getItem('StatementGridHeight'))) ? height : 200,
+                    resizable: true,
+                    resizeHandles: 's',
+                    region: 'north',
+                    xtype: 'panel',
+                    items: [
+                        statements.getExt()
+                    ]
+                },{
+                    region: 'center',
+                    xtype: 'panel',
+                    items: [
+                        transactions.getExt()
+                    ]
+                }
+            ]
+        });
+
+    });
+
+</script>
