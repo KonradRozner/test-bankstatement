@@ -34,11 +34,6 @@ class Mapper extends AbstractsMapper
         $statement = new Entity\Statement(
             (array) $this->getAdapter()->fetchRow($select)
         );
-        if ($fetchAllTransactions) {
-            $statement->setTransactions(
-                $this->getTransactions($statement)
-            );
-        }
 
         return $statement;
     }
