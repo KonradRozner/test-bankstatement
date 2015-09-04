@@ -6,21 +6,6 @@ namespace Vindication\Payment\DirectDebit;
 class Manager
 {
     /**
-     * @return Manager
-     */
-    public static function getService()
-    {
-        $path = realpath(__DIR__ . '/../../../../libraries');
-
-        spl_autoload_register(function($className) use ($path) {
-            $classPath = $path . DIRECTORY_SEPARATOR . str_replace('_', DIRECTORY_SEPARATOR, $className);
-            require_once "{$classPath}.php";
-        });
-
-        return new Manager();
-    }
-
-    /**
      * @param $type
      * @throws \Exception
      * @return IO\AbstractReader
