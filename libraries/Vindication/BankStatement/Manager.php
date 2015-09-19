@@ -9,7 +9,6 @@ use Vindication\BankStatement\Iterator\Transactions;
 use Vindication\BankStatement\Settlement\Manager as SettlementManager;
 use Vindication\BankStatement\Settlement\Warning;
 use Vindication\BankStatement\Settlement\WarningManager;
-use Vindication\Contractor\Mapper as ContractorMapper;
 
 class Manager extends Abstracts\Manager
 {
@@ -124,8 +123,7 @@ class Manager extends Abstracts\Manager
             $this->getWarningManager()->cleanWarnings();
         }
 
-        $contractorMapper = new ContractorMapper();
-
+       
         foreach ($statement->getTransactions() as $transaction) {
             /* @var $transaction \Vindication\BankStatement\Entity\Transaction */
             if (null !== $transaction->get('kontrahent_id') && !$replace)
@@ -142,7 +140,7 @@ class Manager extends Abstracts\Manager
                 continue;
             }
 
-            $contractor = $contractorMapper->findByBankAccountNumber($accountNumber, $statement);
+            $contractor = $this->getService('ContractorMapper')->findByBankAccountNumber($accountNumber, $statement);
 
             if (null !== $contractor)
             {
