@@ -37,12 +37,12 @@ class EntityManager
     {
         return $this->entity;
     }
+
     protected $primary;
 
     /**
-     * 
-     * @param string $tableName
      * @return string
+     * @throws \Exception
      */
     protected function getPrimaryKey()
     {
@@ -68,7 +68,7 @@ class EntityManager
         }
         else
         {
-            $tableName = $this->getEntity()->getDbTable();
+            $tableName = str_replace('lt_', '', $this->getEntity()->getDbTable());
             $adapter   = $this->getMapper()->getAdapter();
 
             $bind = $this->getMapper()->getArrayData(
@@ -76,7 +76,7 @@ class EntityManager
                 );
 
             if ($id = $this->getEntity()->getID()) {
-                $adapter->update($tableName, $bind, array( $this->getPrimaryKey().' =?' => $id ));
+                $adapter->update($tableName, $bind, array( $this->getPrimaryKey() . ' =?' => $id ));
             } else {
                 $adapter->insert($tableName, $bind);
                 $this->getEntity()->set(
@@ -95,7 +95,7 @@ class EntityManager
         $adapter   = $this->getMapper()->getAdapter();
 
         $adapter->delete($tableName, array(
-            $this->getPrimaryKey() .' =?' => $this->getEntity()->getID()
+            $this->getPrimaryKey() . ' =?' => $this->getEntity()->getID()
         ));
     }
 

@@ -26,10 +26,7 @@ abstract class Reader implements InterfaceReader
     {
         $this->file = $file;
 
-        $this->getStatement()->setTransactions(
-            new Transactions()
-        );
-        $this->_validate();
+        $this->getStatement()->setTransactions(new Transactions());
         $this->_parse();
     }
 
@@ -48,52 +45,6 @@ abstract class Reader implements InterfaceReader
         } else {
             throw new \Exception('Nie odnaleziono klasy parsera: "'.$parserName.'"');
         }
-    }
-
-    /**
-     * 
-     * @throws \Exception
-     */
-    final private function _validate()
-    {
-        /* sprawdza naglowek czy jest poprawny format */
-        list($firstLine) = explode("\n", trim($this->getFile()->getContents()));
-
-        switch ($this->getFile()->getFormatName()) {
-            case Factory::FORMAT_SIMP2:
-                switch ($this->getFile()->getParserName()) {
-                    case Factory::BANK_ING:
-                        if (false === strpos(strtolower($firstLine), '<simp2>')) {
-                            throw new \Exception("Błędny format pliku. Bank: <b>ING</b>, wymagany format: <b>SIMP2</b>");
-                        }
-                        break;
-                }
-                break;
-            case Factory::FORMAT_PZI:
-                switch ($this->getFile()->getParserName()) {
-                    case Factory::BANK_ING:
-                        if (false === strpos(strtolower($firstLine), 'pzbsk')) {
-                            throw new \Exception("Błędny format pliku. Bank: <b>ING</b>, wymagany format: <b>PZI</b>");
-                        }
-                        break;
-                }
-                break;
-            case Factory::FORMAT_MT940:
-                switch ($this->getFile()->getParserName()) {
-                    case Factory::BANK_ING:
-                        if (false === strpos(strtolower($firstLine), 'mt940')) {
-                            throw new \Exception("Błędny format pliku. Bank: <b>ING</b>, wymagany format: <b>MT940</b>");
-                        }
-                        break;
-                    case Factory::BANK_MILLENIUM:
-                        if (!preg_match('/:20:[0-9]{7}/', $firstLine)) {
-                            throw new \Exception("Błędny format pliku. Bank: <b>Millenium</b>, wymagany format: <b>MT940</b>");
-                        }
-                        break;
-                }
-                break;
-        }
-        //var_dump($firstLine, $this->getFile()->getParserName()); exit();
     }
 
     /**

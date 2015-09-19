@@ -5,71 +5,107 @@ namespace Vindication\BankStatement;
 use Vindication\Abstracts;
 use Vindication\BankStatement\Entity\Statement;
 use Vindication\BankStatement\Entity\Transaction;
-use Vindication\BankStatement\Entity\TransactionStatus;
 use Vindication\BankStatement\Iterator\Transactions;
-use Vindication\Contractor\Mapper as ContractorMapper;
-use Vindication\BankStatement\Document\Settlement;
+use Vindication\BankStatement\Settlement\Manager as SettlementManager;
 use Vindication\BankStatement\Settlement\Warning;
-use Vindication\Application\Entity\AddressAccount;
+use Vindication\BankStatement\Settlement\WarningManager;
+use Vindication\Contractor\Mapper as ContractorMapper;
 
 class Manager extends Abstracts\Manager
 {
+
+    private $settlementManager = null;
+
     /**
-     * 
+     * @return \Vindication\BankStatement\Settlement\Manager
+     */
+    public function getSettlementManager()
+    {
+        if( null === $this->settlementManager ) {
+            $this->settlementManager = new SettlementManager($this);
+        }
+        return $this->settlementManager;
+    }
+
+    /**
      * @param Statement $statement
-     * 
+     * @return Validator
+     */
+    public function getValidator(Statement $statement)
+    {
+        return new Validator($statement, $this);
+    }
+
+    /**
+     * @param Transactions $transactions
+     * @param int $status
+     * @throws \Exception
+     */
+    public function changeTransactionsStatus(Transactions $transactions, $status)
+    {
+        $adapter = $this->getMapper()->getAdapter();
+
+        try
+        {
+            $adapter->beginTransaction();
+
+            foreach ($transactions as $transaction) {
+                /* @var $transaction \Vindication\BankStatement\Entity\Transaction */
+                $transaction
+                    ->setStatus($status)
+                    ->getEntityManager()->save()
+                ;
+                $ids[] = $transaction->getID();
+
+                if ($status == Transaction::SETTLED_NO) {
+                    $this->getService('PaymentMapper')
+                        ->removeTransactionPayments($transaction)
+                    ;
+                }
+            }
+
+            $this->getService('StatementMapper')->updateStatementStatus($transaction);
+            /* @var \Vindication\BankStatement\Mapper */
+
+
+            $adapter->commit();
+
+        } catch (\Zend_Db_Exception $e)
+        {
+            $adapter->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * zapisuje plik i naglowki wyciagu (saldo)
+     *
+     * @param Statement $statement
+     * @throws \Exception
      * @return void
      */
-    public function executeSettlement(Statement $statement)
+    public function saveStatement(Statement $statement)
     {
-        $paginator = $statement->getTransactions()->getPaginator();
+        $adapter = $this->getMapper()->getAdapter();
 
-        /* resetuje sesje dla pakietu żądań */
-        if ($paginator->getCurrentPageNumber() == $paginator->getPages()->first) {
-            $this->cleanWarnings();
-        }
+        try
+        {
+            $adapter->beginTransaction();
 
-        foreach ($statement->getTransactions() as $transaction) {
-            /* @var $transaction \Vindication\BankStatement\Entity\Transaction */
+            $statement->getFile()->getEntityManager()->save();
 
-            if (in_array($transaction->get('rozliczane_automatycznie'), array(
-                    Transaction::SETTLED_AUTO, Transaction::SETTLED_MANUALLY, Transaction::SETTLED_YES)))
-            {
-                continue;
-            }
-
-            if (null === $transaction->getContractor()) {
-                $this->addWarnings(
-                    new Warning($transaction, Warning::TYPE_NO_CONTRACTOR)
-                );
-                $transaction->set('rozliczane_automatycznie', 0);
-                $transaction->getEntityManager()->save();
-                continue;
-            }
-
-            $documents = $this->getService('StatementDocumentManager')
-                ->getDocuments($transaction)
+            $statement
+                ->setFile($statement->getFile())
+                ->getEntityManager()->save()
             ;
-            /* @var $documents \Vindication\BankStatement\Document\Iterator  */
-            (new Settlement($transaction))->Settle($documents);
 
-            $transaction->set('rozliczane_automatycznie', 1);
-            $transaction->getEntityManager()->save();
+            $adapter->commit();
+
         }
-
-        /* aktualizuje info o wyciagu */
-        if ($paginator->getCurrentPageNumber() == $paginator->getPages()->last) {
-            /* 1 -> rozliczone calkowicie,  0 -> 1 lub wiecej transakcji nie zostala rozliczona */
-            $count = count($this->getWarnings());
-            if ($count == 0) {
-                $statement->set('rozliczane_automatycznie', 1);
-                $statement->getEntityManager()->save();
-            } else if ($count != $paginator->getTotalItemCount()) {
-                $statement->set('rozliczane_automatycznie', 0);
-                $statement->getEntityManager()->save();
-            }
-
-            $this->getService('StatementMapper')->updateStatementStatus($statement);
+        catch (\Zend_Db_Exception $e)
+        {
+            $adapter->rollBack();
+            throw $e;
         }
     }
 
@@ -82,41 +118,57 @@ class Manager extends Abstracts\Manager
     public function mergeContractors(Statement $statement, $replace = false)
     {
         $paginator = $statement->getTransactions()->getPaginator();
-        /* resetuje sesje dla pakietu żądań -> paginacji */
-        if ($paginator->getCurrentPageNumber() == 1) {
-            $this->cleanWarnings();
+
+        if ( $paginator->getCurrentPageNumber() == $paginator->getPages()->first ) {
+            /* resetuje sesje dla pakietu żądań -> paginacji */
+            $this->getWarningManager()->cleanWarnings();
         }
 
         $contractorMapper = new ContractorMapper();
 
         foreach ($statement->getTransactions() as $transaction) {
             /* @var $transaction \Vindication\BankStatement\Entity\Transaction */
-            if (null !== $transaction->get('kontrahent_id') && !$replace) {
-                $this->addWarnings(new Warning($transaction, Warning::TYPE_NO_REPLACE));
+            if (null !== $transaction->get('kontrahent_id') && !$replace)
+            {
+                $this->getWarningManager()->addWarning()->setType(Warning::TYPE_NO_CONTRACTOR);
                 continue;
             }
 
             $accountNumber = $transaction->getSubAccountNo() ? : $transaction->getAccountNo();
 
-            if (empty($accountNumber)) {
-                $this->addWarnings(new Warning($transaction, Warning::TYPE_NO_ACCOUNT));
+            if (empty($accountNumber))
+            {
+                $this->getWarningManager()->addWarning()->setType(Warning::TYPE_NO_ACCOUNT);
                 continue;
             }
 
-            $contractor = $contractorMapper->findByBankAccountNumber(
-                    $accountNumber, $statement
-                );
+            $contractor = $contractorMapper->findByBankAccountNumber($accountNumber, $statement);
 
             if (null !== $contractor)
             {
                 /* @var $contractor \Vindication\Contractor\Entity\Contractor */
-                $transaction->set('kontrahent_id', $contractor->getID());
-                $transaction->set('kontrahent', $contractor->getName());
-                $transaction->getEntityManager()->save();
+                $transaction
+                    ->setContractor($contractor)
+                    ->getEntityManager()->save();
             }
             else {
-                $this->addWarnings(new Warning($transaction, Warning::TYPE_NO_CONTRACTOR));
+                $this->getWarningManager()->addWarning()->setType(Warning::TYPE_NO_CONTRACTOR);
             }
         }
     }
+
+    private $warningManager = null;
+
+    /**
+     * @return WarningManager
+     */
+    public function getWarningManager()
+    {
+        if( null === $this->warningManager ) {
+            $this->warningManager = new WarningManager();
+        }
+
+        return $this->warningManager;
+    }
+
 }
